@@ -1,0 +1,153 @@
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Title</title>
+</head>
+<body style="text-align: center">
+<button onclick="run()">开始渲染</button>
+<canvas id="light" width="1200" height="1200" style="background-color: black;margin: auto"/>
+</body>
+<script type="text/javascript">
+	function run()
+	{
+		let canvas = document.getElementById("light");
+		let context = canvas.getContext("2d");
+		//let time=performance.now();
+		let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+		
+		/**
+		 * 绘制像素点到画布
+		 * @param pixis
+		 * @param color
+		 */
+		function draw(pixis, color)
+		{
+			for (let y = 0; y < canvas.height; y++)
+			{
+				for (let x = 0; x < canvas.width; x++)
+				{
+					let i = y * canvas.width + x;
+					i = i * 4;
+					switch (color)
+					{
+						case 0xff0000:
+							imageData.data[i] = pixis[canvas.height * x + y];
+							break;
+						case 0x00ff00:
+							imageData.data[i + 1] = pixis[canvas.height * x + y];
+							break;
+						case 0x0000ff:
+							imageData.data[i + 2] = pixis[canvas.height * x + y];
+					}
+					imageData.data[i + 3] = 255
+				}
+			}
+			context.putImageData(imageData, 0, 0);
+		}
+		
+		/**
+		 * 获取点到直线的距离
+		 * @param line
+		 * @param point
+		 * @returns {number}
+		 */
+		function getPoint2LineDistance(line, point)
+		{
+			let testRay = {
+				start: {x: line.start.x, y: line.start.y},
+				vector: {x: point.x - line.start.x, y: point.y - line.start.y}
+			};
+			let cos = (line.vector.x * testRay.vector.x + line.vector.y * testRay.vector.y) / Math.sqrt((line.vector.x ** 2 + line.vector.y ** 2) * (testRay.vector.x ** 2 + testRay.vector.y ** 2));
+			cos = isNaN(cos) ? 1 : cos;
+			let sin = Math.sqrt(1 - cos ** 2);
+			let rayLength = Math.sqrt(testRay.vector.x ** 2 + testRay.vector.y ** 2);
+			let distance = rayLength * sin;
+			return distance;
+		}
+		
+		async function lightTracing(width, height, lightSource, graphics)
+		{
+			let R = (lightSource.color & 0xff0000 >> 16) / 0x0000ff * lightSource.power;
+			let G = (lightSource.color & 0x00ff00 >> 8) / 0x0000ff * lightSource.power;
+			let B = (lightSource.color & 0x0000ff) / 0x0000ff * lightSource.power;
+			
+			let workers = [new Worker('./worker/thread.js'), new Worker('./worker/thread.js'), new Worker('./worker/thread.js')];
+			
+			let p1 = new Promise(((resolve, reject) => {
+				workers[0].onmessage = function (e) {
+					resolve(e.data);
+				}
+			}));
+			let p2 = new Promise(((resolve, reject) => {
+				workers[1].onmessage = function (e) {
+					resolve(e.data);
+				}
+			}));
+			let p3 = new Promise(((resolve, reject) => {
+				workers[2].onmessage = function (e) {
+					resolve(e.data);
+				}
+			}));
+			
+			workers[0].postMessage([width, height, graphics, 0xff0000, {...lightSource, power: R}]);
+			workers[1].postMessage([width, height, graphics, 0x00ff00, {...lightSource, power: G}]);
+			workers[2].postMessage([width, height, graphics, 0x0000ff, {...lightSource, power: B}]);
+			
+			let pixisR = new Float64Array(await p1);
+			let pixisG = new Float64Array(await p2);
+			let pixisB = new Float64Array(await p3);
+			draw(pixisR, 0xff0000);
+			draw(pixisG, 0x00ff00);
+			draw(pixisB, 0x0000ff);
+		}
+		
+		function resample(source, width, height)
+		{
+			let pixis = Array(width).fill(null).map(value => Array(height).fill(0));
+			for (let i = 1; i < height - 1; i++)
+			{
+				for (let j = 1; j < width - 1; j++)
+				{
+					pixis[j][i] += source[j - 1][i - 1] * 0.05;
+					pixis[j][i] += source[j - 1][i] * 0.1;
+					pixis[j][i] += source[j - 1][i + 1] * 0.05;
+					pixis[j][i] += source[j][i - 1] * 0.1;
+					pixis[j][i] += source[j][i] * 0.4;
+					pixis[j][i] += source[j][i + 1] * 0.1;
+					pixis[j][i] += source[j + 1][i - 1] * 0.05;
+					pixis[j][i] += source[j + 1][i] * 0.1;
+					pixis[j][i] += source[j + 1][i + 1] * 0.05;
+				}
+			}
+			return pixis;
+		}
+		
+		let pixis = lightTracing(canvas.width, canvas.height, {point: {x: 600, y: 600}, power: 255, color: 0xffffff}, [{
+			shape: 'circle',
+			point: {x: 900, y: 900},
+			radius: 200,
+			color: 0x123456,
+			reflect: 0.9
+		}, {
+			shape: 'circle',
+			point: {x: 900, y: 300},
+			radius: 200,
+			color: 0x123456,
+			reflect: 0.9
+		}, {
+			shape: 'circle',
+			point: {x: 300, y: 300},
+			radius: 200,
+			color: 0x123456,
+			reflect: 0.9
+		}, {
+			shape: 'circle',
+			point: {x: 400, y: 800},
+			radius: 100,
+			color: 0x123456,
+			reflect: 0.9
+		}]);//开始追踪
+		
+	}
+</script>
+</html>
